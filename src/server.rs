@@ -1,33 +1,49 @@
+use tokio::sync::mpsc;
 use tonic::{transport::Server, Request, Response, Status};
 use hello::say_server::{Say, SayServer};
-use hello::{SayResponse, SayRequest};
-mod hello; 
+use hello::{SayRequest, SayResponse};
+mod hello;
 
-// defining a struct for our service
 #[derive(Default)]
 pub struct MySay {}
 
-// implementing rpc for service defined in .proto
 #[tonic::async_trait]
 impl Say for MySay {
-    // our rpc implemented as function
-    async fn send(&self, request: Request<SayRequest>) -> Result<Response<SayResponse>,Status> {
-        // returning a response as SayResponse message as defined in .proto
-        Ok(Response::new(SayResponse{
-            // reading data from request which is awrapper around our SayRequest message defined in .proto
-            message:format!("hello {}",request.get_ref().name),
-        }))
+    // defining return stream
+    type BidirectionalStream = mpsc::Receiver<Result<SayResponse, Status>>;
+    async fn bidirectional(&self, request: Request<tonic::Streaming<SayRequest>>,) 
+        -> Result<Response<Self::BidirectionalStream>, Status> {
+        
+        // converting request in stream
+        let mut streamer = request.into_inner();
+        
+        // creating queue
+        let (mut tx, rx) = mpsc::channel(4);
+        tokio::spawn(async move {
+            let mut counter = 0;
+
+            // listening on request stream
+            while let Some(req) = streamer.message().await.unwrap(){
+                counter += req.name;
+
+                // sending data as soon it is available
+                tx.send(Ok(SayResponse {
+                    message: format!("hello {}, {}", req.name, counter),
+                }))
+                .await;
+            }
+
+        });
+
+        // returning stream as receiver
+        Ok(Response::new(rx))
     }
 }
-
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // defining address for our service
     let addr = "[::1]:50051".parse().unwrap();
-    // creating a service
     let say = MySay::default();
     println!("Server listening on {}", addr);
-    // adding our service to our server.
     Server::builder()
         .add_service(SayServer::new(say))
         .serve(addr)

@@ -1,27 +1,35 @@
+use futures::stream::iter;
 use hello::say_client::SayClient;
 use hello::SayRequest;
-
 mod hello;
-
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // creating a channel ie connection to server
     let channel = tonic::transport::Channel::from_static("http://[::1]:50051")
-    .connect()
-    .await?;
-
-    // creating gRPC client from channel
-    let mut client = SayClient::new(channel);
+        .connect()
+        .await?;
     
-    // creating a new Request
-    let request = tonic::Request::new(
+        let mut client = SayClient::new(channel);
+    
+    // creating a client
+    let request = tonic::Request::new(iter(vec![
         SayRequest {
-           name: String::from("Eric")
+            name: 5,
         },
-    );
+        SayRequest {
+            name: 10,
+        },
+        SayRequest {
+            name: 14,
+        },
+    ]));
     
-    // sending request and waiting for response
-    let response = client.send(request).await?.into_inner();
-    println!("RESPONSE={:?}", response);
+    // calling rpc
+    let mut response = client.bidirectional(request).await?.into_inner();
+    
+    // listening on the response stream
+    while let Some(res) = response.message().await? {
+        println!("NOTE = {:?}", res);
+    }
+
     Ok(())
 }
