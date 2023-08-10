@@ -16,7 +16,7 @@ fn main() {
     //
     //
     fn inspect(s: &String) {
-        
+
     }
 
     // 2. Write a function `change` that takes a *mutable* reference to a String and adds an "s" to
